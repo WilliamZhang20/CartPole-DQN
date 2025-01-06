@@ -4,9 +4,9 @@ import pickle
 from sumTree import SumTree
 
 from tensorflow import keras
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.optimizers import Adam
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import Adam
 
 MODEL_CACHE = 'Cartpole_DQN_Model.keras'
 
@@ -27,9 +27,8 @@ class Agent:
 
         # Sequential model with 2 hidden layers of 24 neurons
         self.model = Sequential([
-            Dense(units=24, activation='relu'),
-            Dense(units=24, activation='relu'),
-            Dense(units=24, activation='relu'),
+            Dense(units=32, activation='relu'),
+            Dense(units=32, activation='relu'),
             Dense(units=action_size, activation='linear'),
         ])
         self.model.compile(loss='mse', optimizer=Adam(learning_rate=self.lr))
