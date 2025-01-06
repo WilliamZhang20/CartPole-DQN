@@ -2,6 +2,7 @@ from agent import Agent
 import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import numpy as np
+import matplotlib.pyplot as plt 
 
 def train_agent():
 
@@ -9,12 +10,13 @@ def train_agent():
     state_size = env.observation_space.shape[0]
     action_size = env.action_space.n # only 2 actions left or right!
 
-    n_episodes = 1000 # set to 1000 episodes
+    n_episodes = 300 # set to 300 episodes
     max_iteration_ep = 500
 
     # Agent defined
     agent = Agent(state_size, action_size)
     total_steps = 0
+    episode_rewards = []  # List to store total rewards per episode
 
     for e in range(n_episodes):
         current_state, _ = env.reset() # env.reset() returns a tuple, we extract
@@ -24,16 +26,18 @@ def train_agent():
         current_state = np.reshape(current_state, [1, state_size])
         print("Episode:", e)
 
+        total_rewards = 0  # Track total rewards for the episode
+
         for step in range(max_iteration_ep):
             total_steps = total_steps + 1
             # Agent computes actions in training setting
-            action = agent.compute_action(current_state)
+            action = agent.act(current_state)
             # Run the action
-            next_state, reward, terminated, truncated, _ = env.step(action) # length of step tuple result is 5
+            next_state, reward, done, _, _ = env.step(action) # length of step tuple result is 5
 
             next_state = np.array([next_state])
 
-            done = terminated or truncated
+            total_rewards += reward
 
             agent.store_episode(current_state, action, reward, next_state, done)
 
@@ -42,9 +46,20 @@ def train_agent():
                 break
 
             current_state = next_state
-        
+
+        episode_rewards.append(total_rewards)  # Store the total rewards for the episode
+
         if total_steps >= agent.batch_size:
             agent.train()
+
+    # plot data of the "learning curve"
+    # Plot the graph at the end of training
+    plt.plot(range(len(episode_rewards)), episode_rewards)
+    plt.xlabel('Episode')
+    plt.ylabel('Total Reward')
+    plt.title('Learning Progress Over Time')
+    plt.savefig('learning_progress.png')  # Save the plot as an image file
+    plt.show()  # Display the plot
 
     print("Done training")
     agent.save('trained_agent.pkl')
@@ -63,9 +78,8 @@ def make_video(agent):
     agent.exp_prob = 0 # block out all explorations
 
     while not done:
-        action = agent.compute_action(state)
-        state, reward, terminated, truncated, _ = env.step(action)
-        done = terminated or truncated
+        action = agent.act(state)
+        state, reward, done, _, _ = env.step(action)
         state = np.array([state])
         steps += 1
         rewards += reward

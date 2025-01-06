@@ -19,9 +19,7 @@ The result is that the total performance of the agent will increase gradually, b
 
 The video in the folder `cartpole-video` is of an agent playing a single game of the cartpole, until it breaks the environment's requirements (see first sentence of "How it works"). 
 
-So far, the maximum time it can do this is 5 seconds. Since each second comprises of hundreds of executions, this is quite a lot to scale. Even the demo on the website of Gymnasium's cartpole environmennt just glues together detached games to make it look like it's doing a good job, but it's not, with each game lasting at most 2 seconds. 
-
-It is **continuous** balancing that is difficult and hard. To accomplish 5 seconds of that, took 1000 training rounds. Training that much alone took 3 hours to complete. Imagine how much it takes to even get to 1 minute of balancing. This is the challenge called reinforcement learning, [is](https://stevengong.co/notes/Reinforcement-Learning) it?
+So far, the maximum time it can do this is 7 seconds, and the learning progression is still unstable. 
 
 Demonstration (A 5-second long GIF):
 
@@ -32,7 +30,7 @@ Demonstration (A 5-second long GIF):
 
 The overall goal of the training process is to make sure that it holds the pole vertical for as long as possible. If the pole's angle exceeds 12 degrees, or the cart veers out of the 'video frame', then the game is over. 
 
-In the process, I set a maximum duration, which the DQN attempts to reach, and each time it does not, a reward of -1 is assigned. At each training round, it processes a set number of episodes (currently hardcoded to 280), and plays the game. At each training step, it store the rewards in a memory buffer, which is later randomly sampled to fit the model. This is an example of experience replay.
+In the process, I set a maximum duration, which the DQN attempts to reach, and each time it does not, a reward of -1 is assigned. At each training round, it processes a set number of episodes (currently hardcoded to 300), and plays the game. At each training step, it store the rewards in a memory buffer, which uses Prioritized Experience Replay (PER) to sample later on. The PER is implemented using a Sum Tree data structure, in which the most valuable experiences are collected.
 
 That deep neural network model is used at each step of the game to determine moves, which can either be pushing the cart left or right. It contains two fully connected hiddden layers, and outputs the Q-values for each possible action in the current state.
 
