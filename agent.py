@@ -58,5 +58,16 @@ class Agent:
 
         # update weights in Adam
         self.optimizer.apply_gradients(zip(gradients, self.q_network.trainable_variables))
-        
 
+        self._update_target_network()
+
+    def _update_target_network(self):
+        # Use soft updates to updates over the parameters of the target network
+        # Formula w_target θ_newt =  τ * θ_q_net + (1 - τ) * θ_old
+
+        for target_weights, q_net_weights in zip(
+            self.target_network.weights, self.q_network.weights
+        ):
+            target_weights.assign(self.tau * q_net_weights + (1.0 - self.tau) * target_weights)
+
+    def train_episodes(self, num_episodes):
