@@ -7,8 +7,11 @@ import matplotlib.pyplot as plt
 def train_agent():
 
     env = gym.make("CartPole-v1")
-    state_size = env.observation_space.shape[0]
+    state_size = env.observation_space.shape
     action_size = env.action_space.n # only 2 actions left or right!
+
+    print('State Shape:', state_size) # (4, )
+    print('Number of actions:', action_size)
 
     n_episodes = 300 # set to 300 episodes
     max_iteration_ep = 500
@@ -19,9 +22,8 @@ def train_agent():
     episode_rewards = []  # List to store total rewards per episode
 
     for e in range(n_episodes):
-        current_state, _ = env.reset() # env.reset() returns a tuple, we extract
-        # print("Type of current_state:", type(current_state))
-        # print("Current state shape:", np.shape(current_state))
+        current_state, _ = env.reset() # env.reset() returns a tuple, discard second
+        
         current_state = np.array(current_state, dtype=np.float32)
         current_state = np.reshape(current_state, [1, state_size])
         print("Episode:", e)
