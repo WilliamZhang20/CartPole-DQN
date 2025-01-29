@@ -29,20 +29,21 @@ class Cartpole_RL_Agent:
         self.q_network = Sequential([
             Input(shape=state_size),
             Dense(units=64, activation='relu'),
-            Dense(units=64, actiavtion='relu'),
-            Dense(units=action_size, activations='linear')
+            Dense(units=64, activation='relu'),
+            Dense(units=action_size, activation='linear')
         ])
         
         # Need a target for stable feedback, i.e. loss calculations from a supposed 'actual value'
         self.target_network = Sequential([
             Input(shape=state_size),
             Dense(units=64, activation='relu'),
-            Dense(units=64, actiavtion='relu'),
-            Dense(units=action_size, activations='linear')
+            Dense(units=64, activation='relu'),
+            Dense(units=action_size, activation='linear')
         ])
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=self.alpha)
     
+    @tf.function
     def _compute_loss(self, experiences):
         """
         Calculates MSE
@@ -83,27 +84,18 @@ class Cartpole_RL_Agent:
     def get_action(self, q_values, epsilon=0.0):
         # use ε-greedy policy
         if memory.random.random() > epsilon:
-            return np.argmax(q_values.numpy()[0])
+            return tf.argmax(q_values.numpy()[0])
         else:
             return memory.random.choice(np.arange(4))
 
     def _sample_memory(self, batch_size):
         transitions = self.memory_buffer.sample(batch_size)
-        states = tf.convert_to_tensor(
-            np.array([e.state for e in transitions if e is not None]), dtype=tf.float32
-        )
-        actions = tf.convert_to_tensor(
-            np.array([e.action for e in transitions if e is not None]), dtype=tf.float32
-        )
-        rewards = tf.convert_to_tensor(
-            np.array([e.reward for e in transitions if e is not None]), dtype=tf.float32
-        )
-        next_states = tf.convert_to_tensor(
-            np.array([e.next_state for e in transitions if e is not None]), dtype=tf.float32
-        )
-        done_vals = tf.convert_to_tensor(
-            np.array([e.done for e in transitions if e is not None]), dtype=tf.float32
-        )
+        # tensorflow operations will work on gpu rather than numpy CPU-based
+        states = tf.stack([tf.convert_to_tensor(e.state, dtype=tf.float32) for e in transitions if e is not None])
+        actions = tf.stack([tf.convert_to_tensor(e.action, dtype=tf.float32) for e in transitions if e is not None])
+        rewards = tf.stack([tf.convert_to_tensor(e.reward, dtype=tf.float32) for e in transitions if e is not None])
+        next_states = tf.stack([tf.convert_to_tensor(e.next_state, dtype=tf.float32) for e in transitions if e is not None])
+        done_vals = tf.stack([tf.convert_to_tensor(e.done, dtype=tf.float32) for e in transitions if e is not None])
         return (states, actions, next_states, rewards, done_vals)
 
     def train_episodes(self, num_episodes):

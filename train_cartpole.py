@@ -7,7 +7,7 @@ def make_video(agent):
     env = gym.make('CartPole-v1', render_mode="rgb_array")
 
     # RecordVideo is convenient cause it will simply auto-save the video!
-    env = RecordVideo(env, video_folder="cartpole-video", name_prefix="eval",
+    env = RecordVideo(env, video_folder="./", name_prefix="eval",
                   episode_trigger=lambda x: True)
     
     done = False
@@ -32,7 +32,7 @@ num_episodes = 600
 # Define the agent
 agent = Cartpole_RL_Agent(state_size, action_size)
 
-option = input()
+option = 1 # force train for now
 if option == "1":
     agent.train_episodes(num_episodes)
 else:
