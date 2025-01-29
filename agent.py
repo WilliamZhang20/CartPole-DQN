@@ -2,7 +2,8 @@ import numpy as np
 import tensorflow as tf
 import gymnasium as gym
 import time
-import memory
+from memory import random
+from memory import ReplayMemory
 import math
 
 import matplotlib.pyplot as plt
@@ -21,9 +22,9 @@ class Cartpole_RL_Agent:
 
         # plot array
         self.total_point_history = []
-        
+
         # Replay memory storage
-        self.memory_buffer = memory.ReplayMemory(10000)
+        self.memory_buffer = ReplayMemory(10000)
 
         # Q network helps approx a function from state and action to a goodness value
         self.q_network = Sequential([
@@ -32,7 +33,7 @@ class Cartpole_RL_Agent:
             Dense(units=64, activation='relu'),
             Dense(units=action_size, activation='linear')
         ])
-        
+
         # Need a target for stable feedback, i.e. loss calculations from a supposed 'actual value'
         self.target_network = Sequential([
             Input(shape=state_size),
@@ -42,29 +43,28 @@ class Cartpole_RL_Agent:
         ])
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=self.alpha)
-    
-    @tf.function
+
     def _compute_loss(self, experiences):
         """
         Calculates MSE
         """
-        state, action, reward, next_state, done_val = experiences
+        state, action, next_state, reward, done_val = experiences
 
-        max_qsa = tf.reduce_max(self.target_net(next_state), axis=1)
+        max_qsa = tf.reduce_max(self.target_network(next_state), axis=1)
 
         y_target = reward + ((1 - done_val)*self.gamma*max_qsa)
-        
+
         q_values = self.q_network(state)
 
         q_values = tf.gather_nd(q_values, tf.stack([tf.range(q_values.shape[0]), tf.cast(action, tf.int32)], axis=1))
         loss = MSE(y_target, q_values)
         return loss
-    
+
     @tf.function # turn on computation graph construction!
     def _agent_learn(self, experiences):
         with tf.GradientTape() as tape:
             loss = self._compute_loss(experiences)
-        
+
         gradients = tape.gradient(loss, self.q_network.trainable_variables)
 
         # update weights in Adam
@@ -83,19 +83,19 @@ class Cartpole_RL_Agent:
 
     def get_action(self, q_values, epsilon=0.0):
         # use ε-greedy policy
-        if memory.random.random() > epsilon:
-            return tf.argmax(q_values.numpy()[0])
+        if random.random() > epsilon:
+            return tf.argmax(q_values, axis=1).numpy()[0]
         else:
-            return memory.random.choice(np.arange(4))
+            return random.choice([0, 1])
 
     def _sample_memory(self, batch_size):
         transitions = self.memory_buffer.sample(batch_size)
         # tensorflow operations will work on gpu rather than numpy CPU-based
-        states = tf.stack([tf.convert_to_tensor(e.state, dtype=tf.float32) for e in transitions if e is not None])
-        actions = tf.stack([tf.convert_to_tensor(e.action, dtype=tf.float32) for e in transitions if e is not None])
-        rewards = tf.stack([tf.convert_to_tensor(e.reward, dtype=tf.float32) for e in transitions if e is not None])
-        next_states = tf.stack([tf.convert_to_tensor(e.next_state, dtype=tf.float32) for e in transitions if e is not None])
-        done_vals = tf.stack([tf.convert_to_tensor(e.done, dtype=tf.float32) for e in transitions if e is not None])
+        states = tf.stack([tf.convert_to_tensor(e.state, dtype=tf.float32) for e in transitions if e is not None], axis=0)
+        actions = tf.stack([tf.convert_to_tensor(e.action, dtype=tf.float32) for e in transitions if e is not None], axis=0)
+        rewards = tf.stack([tf.convert_to_tensor(e.reward, dtype=tf.float32) for e in transitions if e is not None], axis=0)
+        next_states = tf.stack([tf.convert_to_tensor(e.next_state, dtype=tf.float32) for e in transitions if e is not None], axis=0)
+        done_vals = tf.stack([tf.convert_to_tensor(e.done, dtype=tf.float32) for e in transitions if e is not None], axis=0)
         return (states, actions, next_states, rewards, done_vals)
 
     def train_episodes(self, num_episodes):
@@ -103,11 +103,11 @@ class Cartpole_RL_Agent:
         self.total_point_history = []
         env = gym.make('CartPole-v1')
 
-        episode_rec = 100
+        episode_rec = 10
         max_iters = 1000
         batch_size = 64
         e_decay = 0.99
-        e_min = 0.01
+        e_min = 0.001 # end with a nearly zero chance of exploration
         epsilon = 1.0
 
         self.memory_buffer.clear()
@@ -117,7 +117,7 @@ class Cartpole_RL_Agent:
             total_points = 0
             for t in range(max_iters):
                 # transform into q_network input
-                state_qn = np.expand_dims(curr_state, axis=0)
+                state_qn = tf.expand_dims(curr_state, axis=0)
                 q_values = self.q_network(state_qn)
 
                 # get action by random choice between explore vs exploit
@@ -127,7 +127,7 @@ class Cartpole_RL_Agent:
                 next_state, reward, done, _ , _ = env.step(action)
 
                 # record in memory
-                self.memory_buffer.append(memory.Transition(curr_state, action, next_state, reward, done))
+                self.memory_buffer.push(curr_state, action, next_state, reward, done)
 
                 # complete soft update every episode...
                 experiences = self._sample_memory(batch_size)
@@ -135,15 +135,15 @@ class Cartpole_RL_Agent:
                 self._agent_learn(experiences)
 
                 curr_state = next_state.copy() # copy over numpy array
-                total_points += reward    
+                total_points += reward
 
                 if done:
                     break
-            
+
             self.total_point_history.append(total_points)
             epsilon = max(e_min, e_decay * epsilon)
             avg_latest_points=np.mean(self.total_point_history[-episode_rec:])
-            
+
             if (i+1) % episode_rec == 0:
                 print(f"\rEpisode {i+1} | Total point average of the last {episode_rec} episodes: {avg_latest_points:.2f}")
 

@@ -9,7 +9,6 @@ def make_video(agent):
     # RecordVideo is convenient cause it will simply auto-save the video!
     env = RecordVideo(env, video_folder="./", name_prefix="eval",
                   episode_trigger=lambda x: True)
-    
     done = False
     state, _ = env.reset() # split out the tuple, trash second info
 
