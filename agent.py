@@ -151,6 +151,8 @@ class Cartpole_RL_Agent:
         time_taken = time.time() - start
         print(f"\nTotal Runtime: {time_taken:.2f} s ({(time_taken/60):.2f} min)")
         self.q_network.save(MODEL_CACHE)
+        
+        self.plot_history() # show a plot after training!
 
     def plot_history(self):
         # from the element `total point history`
@@ -161,7 +163,6 @@ class Cartpole_RL_Agent:
         plt.savefig('learning_progress.png')  # Save the plot as an image file
         plt.show()  # Display the plot
 
-    @staticmethod
     def load_model(self):
         self.q_network = tf.keras.models.load_model(MODEL_CACHE)
         self.target_network = self.q_network
