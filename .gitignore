@@ -1,6 +1,5 @@
 miniDQN.py
 __pycache__
 venv
-*.png
 *.pkl
-*.keras
+*.json

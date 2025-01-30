@@ -60,7 +60,6 @@ class Cartpole_RL_Agent:
         loss = MSE(y_target, q_values)
         return loss
 
-    @tf.function # turn on computation graph construction!
     def _agent_learn(self, experiences):
         with tf.GradientTape() as tape:
             loss = self._compute_loss(experiences)
@@ -109,6 +108,8 @@ class Cartpole_RL_Agent:
         e_decay = 0.99
         e_min = 0.001 # end with a nearly zero chance of exploration
         epsilon = 1.0
+
+        # update every few episodes to minimize computations
 
         self.memory_buffer.clear()
 

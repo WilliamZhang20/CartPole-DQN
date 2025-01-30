@@ -22,16 +22,16 @@ def make_video(agent):
     env.close()
 
 env = gym.make("CartPole-v1")
-state_size = env.observation_space.shape[0]
+state_size = env.observation_space.shape
 action_size = env.action_space.n # only 2 actions left or right!
 
 # Number of training episodes
-num_episodes = 600
+num_episodes = 400
 
 # Define the agent
 agent = Cartpole_RL_Agent(state_size, action_size)
 
-option = 1 # force train for now
+option = "1" # force train for now
 if option == "1":
     agent.train_episodes(num_episodes)
 else:
