@@ -13,8 +13,8 @@ def make_video(agent):
     state, _ = env.reset() # split out the tuple, trash second info
 
     while not done:
-        state_qn = np.expand_dims(state, axis=0)
-        q_values = agent.q_network(state_qn)
+        state_qn = np.expand_dims(state, axis=0).dtype(np.float32)
+        q_values = agent.q_network.predict(state_qn)
         action = agent.get_action(q_values)
         state, _, done, _, _ = env.step(action)
 

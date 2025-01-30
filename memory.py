@@ -20,7 +20,7 @@ class ReplayMemory(object):
         self.memory.append(Transition(*args))
 
     def sample(self, batch_size):
-        return random.sample(self.memory, min(len(self.memory), batch_size))
+        return random.sample(self.memory, batch_size) if len(self.memory) >= batch_size else list(self.memory)
 
     def __len__(self):
         return len(self.memory)

@@ -9,8 +9,12 @@ import math
 import matplotlib.pyplot as plt
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense, Input
-from tensorflow.keras.losses import MSE
+from tensorflow.keras.losses import Huber
 from tensorflow.keras.optimizers import Adam
+
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppresses TensorFlow INFO and WARNING messages
+tf.get_logger().setLevel('ERROR')  # Suppresses logs from the TensorFlow logger
 
 MODEL_CACHE = 'Cartpole_DQN_Model.keras'
 
@@ -46,7 +50,7 @@ class Cartpole_RL_Agent:
 
     def _compute_loss(self, experiences):
         """
-        Calculates MSE
+        Calculates Huber Loss
         """
         state, action, next_state, reward, done_val = experiences
 
@@ -57,7 +61,9 @@ class Cartpole_RL_Agent:
         q_values = self.q_network(state)
 
         q_values = tf.gather_nd(q_values, tf.stack([tf.range(q_values.shape[0]), tf.cast(action, tf.int32)], axis=1))
-        loss = MSE(y_target, q_values)
+        
+        loss_fn = Huber(delta=1.0)  # delta controls the transition point from L2 to L1
+        loss = loss_fn(y_target, q_values)
         return loss
 
     def _agent_learn(self, experiences):
@@ -105,11 +111,12 @@ class Cartpole_RL_Agent:
         episode_rec = 10
         max_iters = 1000
         batch_size = 64
-        e_decay = 0.99
+        e_decay = 0.98
         e_min = 0.001 # end with a nearly zero chance of exploration
         epsilon = 1.0
 
         # update every few episodes to minimize computations
+        update_interval = 4
 
         self.memory_buffer.clear()
 
@@ -118,8 +125,8 @@ class Cartpole_RL_Agent:
             total_points = 0
             for t in range(max_iters):
                 # transform into q_network input
-                state_qn = tf.expand_dims(curr_state, axis=0)
-                q_values = self.q_network(state_qn)
+                state_qn = np.expand_dims(curr_state, axis=0)
+                q_values = self.q_network.predict(state_qn, verbose=0)
 
                 # get action by random choice between explore vs exploit
                 action = self.get_action(q_values, epsilon)
@@ -130,10 +137,12 @@ class Cartpole_RL_Agent:
                 # record in memory
                 self.memory_buffer.push(curr_state, action, next_state, reward, done)
 
-                # complete soft update every episode...
-                experiences = self._sample_memory(batch_size)
+                do_update= ( (t + 1) % update_interval == 0) and ( self.memory_buffer.__len__() > batch_size )
 
-                self._agent_learn(experiences)
+                if do_update:
+                    # compute soft update + update the agent... 
+                    experiences = self._sample_memory(batch_size)
+                    self._agent_learn(experiences)
 
                 curr_state = next_state.copy() # copy over numpy array
                 total_points += reward
