@@ -16,7 +16,8 @@ def make_video(agent):
         state_qn = np.expand_dims(state, axis=0)
         q_values = agent.q_network(state_qn)
         action = agent.get_action(q_values)
-        state, _, done, _, _ = env.step(action)
+        state, _, done, terminated, _ = env.step(action)
+        done = done or terminated
 
     env.close()
 
@@ -25,7 +26,7 @@ state_size = env.observation_space.shape
 action_size = env.action_space.n # only 2 actions left or right!
 
 # Number of training episodes
-num_episodes = 700
+num_episodes = 800
 
 # Define the agent
 agent = Cartpole_RL_Agent(state_size, action_size)
