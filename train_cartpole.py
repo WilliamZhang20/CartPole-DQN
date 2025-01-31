@@ -25,7 +25,7 @@ state_size = env.observation_space.shape
 action_size = env.action_space.n # only 2 actions left or right!
 
 # Number of training episodes
-num_episodes = 800
+num_episodes = 700
 
 # Define the agent
 agent = Cartpole_RL_Agent(state_size, action_size)
