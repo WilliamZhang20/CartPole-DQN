@@ -1,41 +1,91 @@
 # Cart Pole DQN
 
-In classic Q-learning, a Q-table was used to store the expected utility values for each state-action pair.
-But for more complex examples such as a [cart pole](https://gymnasium.farama.org/environments/classic_control/cart_pole/) control environment, it is more optimal to use a neural network to map states, and actions to a reward. 
+In this repository, I have trained a deep neural network learn to control a cart on a rail to keep an attached pole vertically balanced. I did this with a Reinforcement Learning (RL) approach, in which the technique is called a Deep-Q Network (DQN). It was first introduced in [this](https://arxiv.org/abs/1312.5602) paper to play Atari.
 
-This is called a **Deep Q Network (DQN)**, as described in [this](https://arxiv.org/abs/1312.5602) very famous paper setting out the concept.
+## The environment
 
-In this repository, I have trained a DQN to control a cart pole and keep the pole vertical. This was done in the Gymnasium (formerly OpenAI gym) simulation environment, and the agent's training was written in Python using Tensorflow. 
+Below is an image of the cart pole setup. The goal is to keep the pole balanced in the vertical position for as long as possible by controlling the black cart. 
 
-## Overview
+The training was done in Gymnasium's [cart pole](https://gymnasium.farama.org/environments/classic_control/cart_pole/) environment, maintained by the Farama foundation.
 
-The file `agent.py` contains methods to train and execute actions for the cart pole controller agent, and the file `train_cartpole.py` runs training cycles and captures a video of the trained agent in action! The folder `cartpole-video` contains a (too) short video of the agent balancing the pole. 
+![alt text](https://gymnasium.farama.org/_images/cart_pole.gif)
+
+### Actions
+
+An agent can do only do 1 of 2 actions. Unfortunately there is somehow no 'do nothing' which I find strange, but here we are:
+- 0 - push the cart left
+- 1 - push the cart right
+
+### Reward
+
+In the environment, a "time step" refers to a The reward given by the Gymnasium cart-pole environment is `+1` for every time step. In simple terms, the goal is to 'stay alive' for as long as possible.
+
+### Modelling the system
+
+From a physics standpoint, the system can be [modelled](https://underactuated.mit.edu/acrobot.html#cart_pole) by a system of second order differential equations, and then controlled with PID. 
+
+Modelling the state vector with: $$ \mathbf{q} = [x, \theta]^T $$ where scalar x is the distance of the cart from the left and θ is the angle of the pole with the vertical ray pointing down from the cart, and $$ \mathbf{x} = [q, \dot{q}]^T $$ the goal is to "stabilize the unstable fixed point" (a classic point of discussion in signals & systems) at $$ \mathbf{x} = [0, \pi, 0, 0]^T $$ 
+
+But as with many such systems, we can employ a trained machine learning model to control it, which can be universally applicable regardless of physical modelling!
+
+### Observation
+
+In the Gymnasium environment, the agent receives an output each time it carries out an action using the API function `env.step(action)`. This output contains the state vector $\mathbf{x}$ described above, and defines a unique state in the environment.
+
+## An overview of the repository
+
+The file `agent.py` contains methods to train and execute actions for the cart pole controller agent, and the file `train_cartpole.py` runs training cycles and captures a video of the trained agent in action! 
+
+The agent was trained using [TensorFlow](https://www.tensorflow.org/install/source), which I initially found slightly unwieldy, but found out is just as cool as PyTorch. 
+
+The folder `video-demo` contains a 10-second video of the agent balancing the pole. 
+
+The folder `learning-curves` contains various images of learning progresssions for training rounds. Graphing those helped me gauge the stability and quality of the model training.
 
 Finally, file `requirements.txt` has a list of libraries needed not only for training, but also for capturing videos.
 
-Effective training can take a long time, up to an hour. During that process, one can observe that the agent is progressively able to balance the pole for longer periods of time, although occasionally, it makes a mistake and the game terminates early.
+## The Theory Behind Deep-Q Learning
 
-The result is that the total performance of the agent will increase gradually, but when it reaches the highest set point, its performance will oscillate, as shown in the image `rewards_result.png`. 
+From the standpoint of running and training the agent, all the details were abstracted away into the class called `Cartpole_RL_Agent` to make the code clean. But to learn how it works, we first need some theory.
 
-The video in the folder `cartpole-video` is of an agent playing a single game of the cartpole, until it breaks the environment's requirements (see first sentence of "How it works"). 
+In classic Q-learning, the algorithm tries to learn a value describing the 'goodness' or 'quality' (the meaning of Q) of taking action `a` from state `s`. At every state `s` in the 'game' it chooses the `a` yielding the highest Q(s, a). 
 
-So far, the maximum time it can do this is 7 seconds, and the learning progression is still unstable. 
+This is an example of model-free, off-policy reinforcement leaerning. It is model-free, because we are not estimating any reward or transition probability function from the Markov Decision Process. It is also off-policy because the learned policy for the agent is not the one that generates training samples. This is because Q-learning follows the recursive Bellman equation updates: $$ Q(s, a) \leftarrow \hat{Q}(s, a) + \alpha \cdot (r + (\gamma \cdot \underset{a' \in Actions(s)}{argmax}Q(s', a')) - \hat{Q}(s, a))$$ where s is any non-terminal state, s' is the next state, and a is the action to go from s to s'. Alpha is the learning rate, and a' is an action from state s', from which we simply choose the one that yields the highest Q-value.
 
-Demonstration (A 5-second long GIF):
+On the right side of the arrow, if Q hat and Q were the same, the algorithm would be "chasing" its own tail due to its recursive nature, leading to a high level of instability.
 
-![eval-episode-0](https://github.com/user-attachments/assets/d1386d34-112d-468e-bf0e-d99466100c0e)
+So Q-learning separates them into the target and estimation. The *target* (the Q without the hat) is the ideal Q-value, and the estimation (with the hat, as is with statistics) is the current value.
 
+In high-dimensional problems such as the cart-pole, it is impossible to store a Q-table, so we use a neural network to approximate the Q function, which takes in the state observation `s` and outputs a vector of all Q(s), in which different elements of Q(s) correspond to different Q(s, a)
 
-## How it works
+The target Q-values will be predicted using a separate neural network to ensure training stability. However, we do not know the real target, so we have to estimate it by measuring the difference with respect to the Q-network. 
 
-The overall goal of the training process is to make sure that it holds the pole vertical for as long as possible. If the pole's angle exceeds 12 degrees, or the cart veers out of the 'video frame', then the game is over. 
+Thus, the target network is periodically updated to match the values of the Q-network. Similarly, the Q-network also does so with respect to the target network, using the Bellman equation given above.
 
-In the process, I set a maximum duration, which the DQN attempts to reach, and each time it does not, a reward of -1 is assigned. At each training round, it processes a set number of episodes (currently hardcoded to 300), and plays the game. At each training step, it store the rewards in a memory buffer, which uses Prioritized Experience Replay (PER) to sample later on. The PER is implemented using a Sum Tree data structure, in which the most valuable experiences are collected.
+This *amazing* result is therefore a feedback mechanism between the two-deep neural networks which are 'linked' together to produce a stable, and gradually improving learning progression.
 
-That deep neural network model is used at each step of the game to determine moves, which can either be pushing the cart left or right. It contains two fully connected hiddden layers, and outputs the Q-values for each possible action in the current state.
+## The Training Loop
 
-Additionally, after training, the agent class's data members, including its neural network model, are stored in a serialized `.pkl` file, which can then be pulled to make videos without having to redo the training. 
+The training was written using the TensorFlow machine learning library, in which I bulit a custom training loop from scratch to have more control over loss calculations and gradient descent. 
 
-## Credits
+All training methods are localed in `agent.py` and are primarily based in `train_episodes`, `compute_loss`, and `agent_learn`.
 
-The original code is from [this](https://towardsdatascience.com/deep-q-networks-theory-and-implementation-37543f60dd67) Medium blog, to which I added adjustments to the new version of Gymnasium, and other improvements, mentioned above.
+From the original paper, it goes as follows:
+
+![alt-text](https://i.sstatic.net/DEmcS.png)
+
+### Speed Optimizations
+
+I added the compiler flag `@tf.function` outside of the function `agent_learn()` to make it construct a static computation graph. 
+
+But since such computations tend to be expensive if run repetitively on different samples, I carried such updates periodically, once every 3 time steps. This sped up execution by 500%.
+
+## The Memory Buffer
+
+The experience replay buffer was bulit using a size-limited deque of `NamedTuple` elements. 
+
+One drawback of the design is: once it reaches peak rewards, the memory fills up with experiences from which the agent does not learn (i.e. already learned, doesn't care). So the model does not improve and even has potential to fall back, as was demonstrated in this curve below. 
+
+The solution will be to use Prioritized Experience Replay - upcoming!!!
+
+![alt-text](learning_curves/stable_curve.png)
