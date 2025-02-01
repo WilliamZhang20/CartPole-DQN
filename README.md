@@ -27,19 +27,19 @@ From a physics standpoint, the system can be [modelled](https://underactuated.mi
 Modelling the state vector with:  
 
 $$ 
-\mathbf{q} = \begin{bmatrix} x \\ \theta \end{bmatrix}
+\mathbf{q} = [x, \theta]^T
 $$  
 
 where scalar $x$ is the distance of the cart from the left and $\theta$ is the angle of the pole with the vertical ray pointing down from the cart, and  
 
 $$ 
-\mathbf{x} = \begin{bmatrix} q \\ \dot{q} \end{bmatrix}
+\mathbf{x} = [q, \dot{q}]^T
 $$  
 
 the goal is to "stabilize the unstable fixed point" (a classic point of discussion in signals & systems) at  
 
 $$ 
-\mathbf{x} = \begin{bmatrix} 0 \\ \pi \\ 0 \\ 0 \end{bmatrix}
+\mathbf{x} = [0, \pi, 0, 0]^T
 $$
 
 But as with many such systems, we can employ a trained machine learning model to control it, which can be universally applicable regardless of physical modelling!
