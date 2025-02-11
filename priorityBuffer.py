@@ -7,6 +7,11 @@ import random
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'done'))
 
+"""
+CREDIT FOR 99% OF WORK: 
+https://github.com/openai/baselines/blob/master/baselines/deepq/replay_buffer.py
+"""
+
 class PrioritizedReplayBuffer():
     def __init__(self, size, alpha):
         """Create Prioritized Replay buffer.
@@ -43,16 +48,11 @@ class PrioritizedReplayBuffer():
         return len(self._storage)
     
     def _encode_sample(self, idxes):
-        obses_t, actions, rewards, obses_tp1, dones = [], [], [], [], []
+        aggregate_sample = []
         for i in idxes:
-            data = self._storage[i]
-            obs_t, action, reward, obs_tp1, done = data
-            obses_t.append(np.array(obs_t, copy=False))
-            actions.append(np.array(action, copy=False))
-            rewards.append(reward)
-            obses_tp1.append(np.array(obs_tp1, copy=False))
-            dones.append(done)
-        return np.array(obses_t), np.array(actions), np.array(rewards), np.array(obses_tp1), np.array(dones)
+            data = self._storage[i] # storage holds transition tuples
+            aggregate_sample.append(data)
+        return aggregate_sample
 
     def add(self, *args):
         """
@@ -117,7 +117,7 @@ class PrioritizedReplayBuffer():
             weights.append(weight / max_weight)
         weights = np.array(weights)
         encoded_sample = self._encode_sample(idxes)
-        return tuple(list(encoded_sample) + [weights, idxes])
+        return tuple(encoded_sample, weights, idxes)
 
     def update_priorities(self, idxes, priorities):
         """Update priorities of sampled transitions.

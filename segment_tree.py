@@ -1,5 +1,7 @@
 import operator
-
+"""
+CREDITS: https://github.com/openai/baselines/blob/master/baselines/common/segment_tree.py
+"""
 
 class SegmentTree(object):
     def __init__(self, capacity, operation, neutral_element):
