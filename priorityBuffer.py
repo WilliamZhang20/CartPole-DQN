@@ -1,131 +1,134 @@
 import numpy as np
 from collections import namedtuple
+from segment_tree import SumSegmentTree
+from segment_tree import MinSegmentTree
 import random
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'done'))
 
-class PriorityBuffer: # specifically adapted to cart pole environment
-    def __init__(self, capacity, alpha):
-        self.capacity = capacity
-        self.alpha = alpha
+class PrioritizedReplayBuffer():
+    def __init__(self, size, alpha):
+        """Create Prioritized Replay buffer.
 
-        # two segment trees involved to find min & sum over ranges
-        self.priority_sum = [0 for _ in range(2*self.capacity)]
-        self.priority_min = [float('inf') for _ in range(2 * self.capacity)]
-        self.max_priority = 1
+        Parameters
+        ----------
+        size: int
+            Max number of transitions to store in the buffer. When the buffer
+            overflows the old memories are dropped.
+        alpha: float
+            how much prioritization is used
+            (0 - no prioritization, 1 - full prioritization)
 
-        self.data = { # store various arrays for different params
-            'state': np.zeros(shape=(capacity, 4), dtype=np.float32),  # CartPole states are 1D vectors of length 4
-            'action': np.zeros(shape=capacity, dtype=np.int32),  # Action is an integer
-            'reward': np.zeros(shape=capacity, dtype=np.float32),  # Reward is a float
-            'next_state': np.zeros(shape=(capacity, 4), dtype=np.float32),  # Next state is also a 1D vector of length 4
-            'done': np.zeros(shape=capacity, dtype=bool)  # Boolean indicating whether the episode has ended
-        }
+        See Also
+        --------
+        ReplayBuffer.__init__
+        """
+        self._storage = []
+        self._maxsize = size
+        self._next_idx = 0
 
-        self.next_idx = 0
-        self.size = 0 # number of elements within buffer
+        assert alpha >= 0
+        self._alpha = alpha
 
-    def add(self, *args): # add samples
-        group = Transition(*args)
-        idx = self.next_idx
+        it_capacity = 1
+        while it_capacity < size:
+            it_capacity *= 2
 
-        self.data['state'][idx] = group.state # store in queues
-        self.data['action'][idx] = group.action
-        self.data['reward'][idx] = group.reward
-        self.data['next_state'][idx] = group.next_state
-        self.data['done'][idx] = group.done
-        
-        self.next_idx = (idx + 1) % self.capacity
-        self.size = min(self.capacity, self.size+1)
-        priority_alpha = self.max_priority ** self.alpha
-
-        self._set_priority_min(idx, priority_alpha)
-        self._set_priority_sum(idx, priority_alpha)
+        self._it_sum = SumSegmentTree(it_capacity)
+        self._it_min = MinSegmentTree(it_capacity)
+        self._max_priority = 1.0
     
-    def _set_priority_min(self, idx, priority_alpha):
-        idx += self.capacity
-        self.priority_min[idx] = priority_alpha
-
-        while idx >= 2:
-            idx //= 2 # retrieve parent
-
-            # value of parent is minimum of children
-            self.priority_min[idx] = min(self.priority_min[2 * idx], self.priority_min[2 * idx + 1])
+    def __len__(self):
+        return len(self._storage)
     
-    def _set_priority_sum(self, idx, priority):
-        idx += self.capacity # begin at leaf
-        self.priority_sum[idx] = priority # set leaf priority
+    def _encode_sample(self, idxes):
+        obses_t, actions, rewards, obses_tp1, dones = [], [], [], [], []
+        for i in idxes:
+            data = self._storage[i]
+            obs_t, action, reward, obs_tp1, done = data
+            obses_t.append(np.array(obs_t, copy=False))
+            actions.append(np.array(action, copy=False))
+            rewards.append(reward)
+            obses_tp1.append(np.array(obs_tp1, copy=False))
+            dones.append(done)
+        return np.array(obses_t), np.array(actions), np.array(rewards), np.array(obses_tp1), np.array(dones)
 
-        # traverse to root, and update tree
-        while idx >= 2:
-            idx //= 2
+    def add(self, *args):
+        """
+        Add a batch of experiences to the buffer
+        """
+        idx = self._next_idx
+        data = Transition(*args)
+        if self._next_idx >= len(self._storage):
+            self._storage.append(data)
+        else:
+            self._storage[self._next_idx] = data
+        # update priorities
+        self._it_sum[idx] = self._max_priority ** self._alpha
+        self._it_min[idx] = self._max_priority ** self._alpha
 
-            # make priority sum of children
-            self.priority_sum[idx] = self.priority_sum[2 * idx] + self.priority_sum[2*idx+1]
+    def _sample_proportional(self, batch_size):
+        res = []
+        p_total = self._it_sum.sum(0, len(self._storage) - 1)
+        every_range_len = p_total / batch_size
+        for i in range(batch_size):
+            mass = random.random() * every_range_len + i * every_range_len
+            idx = self._it_sum.find_prefixsum_idx(mass)
+            res.append(idx)
+        return res
 
-    def _sum(self): # calaculate sum of sample probabilities - O(1) at root
-        return self.priority_sum[1]
-
-    def _min(self):
-        return self.priority_min[1]
-
-    # find largest i such that sum of prefix priorities is less than required
-    def find_prefix_sum_idx(self, prefix_sum):
-        idx = 1
-        while idx < self.capacity:
-            if self.priority_sum[idx * 2] > prefix_sum: # if sum of left branch higher
-                idx = 2 * idx # keep iterating to left branch
-            else: # go to right branch & reduce left sum
-                prefix_sum -= self.priority_sum[idx*2]
-                idx = 2*idx + 1
-        return idx - self.capacity
-
-    # sample from priority buffer
     def sample(self, batch_size, beta):
-        samples = {
-            'weights': np.zeros(shape=batch_size, dtype=np.float32),
-            'indexes': np.zeros(shape=batch_size, dtype=np.int32)
-        }
+        """Sample a batch of experiences.
 
-        for i in range(batch_size):
-            p = random.random() * self._sum()
-            idx = self.find_prefix_sum_idx(p)
-            samples['indexes'][i] = idx
-        
-        prob_min = self._min() / self._sum()
+        compared to regular buffer
+        it also returns importance weights and idxes
+        of sampled experiences.
 
-        max_weight = (prob_min * self.size) ** (-beta) # beta introduces a bias factor
+        obs_batch: np.array
+            batch of observations
+        act_batch: np.array
+            batch of actions executed given obs_batch
+        rew_batch: np.array
+            rewards received as results of executing act_batch
+        next_obs_batch: np.array
+            next set of observations seen after executing act_batch
+        done_mask: np.array
+            done_mask[i] = 1 if executing act_batch[i] resulted in
+            the end of an episode and 0 otherwise.
+        weights: np.array
+            Array of shape (batch_size,) and dtype np.float32
+            denoting importance weight of each sampled transition
+        idxes: np.array
+            Array of shape (batch_size,) and dtype np.int32
+            idexes in buffer of sampled experiences
+        """
+        assert beta > 0
 
-        for i in range(batch_size):
-            idx = samples['indexes'][i]
-            prob = self.priority_sum[idx + self.capacity] / self._sum()
-            weight = (prob * self.size) ** (-beta)
-            samples['weights'][i] = weight / max_weight
-        
-        for k, v in self.data.items():
-            samples[k] = v[samples['indexes']]
-        
-        return samples
+        idxes = self._sample_proportional(batch_size)
 
-    # update priorities
-    def update_priorities(self, indexes, priorities):
-        for idx, priority in zip(indexes, priorities):
-            self.max_priority = max(self.max_priority, priority)
-            priority_alpha = priority ** self.alpha
-            self._set_priority_min(idx, priority_alpha)
-            self._set_priority_sum(idx, priority_alpha)
+        weights = []
+        p_min = self._it_min.min() / self._it_sum.sum()
+        max_weight = (p_min * len(self._storage)) ** (-beta)
 
-    def is_full(self):
-        return self.capacity == self.size
-    
-    def clear(self):
-        # Reset the buffer's state
-        self.data['transitions'] = [None] * self.capacity  # Reset the transitions
-        self.size = 0  # Reset the size
-        self.next_idx = 0  # Reset the next index
-        self.max_priority = 1  # Reset the max priority
+        for idx in idxes:
+            p_sample = self._it_sum[idx] / self._it_sum.sum()
+            weight = (p_sample * len(self._storage)) ** (-beta)
+            weights.append(weight / max_weight)
+        weights = np.array(weights)
+        encoded_sample = self._encode_sample(idxes)
+        return tuple(list(encoded_sample) + [weights, idxes])
 
-        # Reset priority trees  
-        self.priority_sum = [0 for _ in range(2 * self.capacity)]  # Reset sum tree
-        self.priority_min = [float('inf') for _ in range(2 * self.capacity)]  # Reset min tree
+    def update_priorities(self, idxes, priorities):
+        """Update priorities of sampled transitions.
+        sets priority of transition at index idxes[i] in buffer
+        to priorities[i].
+        """
+        assert len(idxes) == len(priorities)
+        for idx, priority in zip(idxes, priorities):
+            assert priority > 0
+            assert 0 <= idx < len(self._storage)
+            self._it_sum[idx] = priority ** self._alpha
+            self._it_min[idx] = priority ** self._alpha
+
+            self._max_priority = max(self._max_priority, priority)
