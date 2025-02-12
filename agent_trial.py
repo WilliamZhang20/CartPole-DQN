@@ -4,12 +4,17 @@ import gymnasium as gym
 import time
 from memory import random
 from memory import ReplayMemory
+from priorityBuffer import PriorityBuffer
 
 import matplotlib.pyplot as plt
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense, Input
-from tensorflow.keras.losses import MSE
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import MSE
+
+"""
+NOTE: THIS FILE IS STILL IN TRIAL - NOT WORKING (YET) - FOR WORKING REFERENCE SEE `agent.py`
+"""
 
 MODEL_CACHE = 'Cartpole_DQN_Model.keras'
 
@@ -23,7 +28,9 @@ class Cartpole_RL_Agent:
         self.total_point_history = []
 
         # Replay memory storage
-        self.memory_buffer = ReplayMemory(10000)
+        self.alpha_prior = 0.6  # Alpha controls prioritization strength
+        self.beta = 0.4  # Beta controls importance-sampling correction
+        self.memory_buffer = PriorityBuffer(5000, self.alpha_prior)
 
         # Q network helps approx a function from state and action to a goodness value
         self.q_network = Sequential([
@@ -42,28 +49,28 @@ class Cartpole_RL_Agent:
         ])
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=self.alpha)
-
+    
     def _compute_loss(self, experiences):
         """
-        Calculates Huber Loss
+        Calculates Mean-Squared Error Loss
         """
-        state, action, next_state, reward, done_val = experiences
-
-        max_qsa = tf.reduce_max(self.target_network(next_state), axis=1)
-
-        y_target = reward + ((1 - done_val)*self.gamma*max_qsa)
-
+        state, action, next_state, reward, done_val, weights, indexes = experiences
+        # Ensure next_state has correct shape
+        max_qsa = tf.reduce_max(self.target_network(tf.convert_to_tensor(next_state, dtype=tf.float32)), axis=1)
+        y_target = reward + ((1 - done_val) * self.gamma * max_qsa)
         q_values = self.q_network(state)
+        q_values = tf.gather_nd(q_values, tf.stack([tf.range(q_values.shape[0]), action], axis=1))
+        weights = tf.cast(weights, tf.float32) 
 
-        q_values = tf.gather_nd(q_values, tf.stack([tf.range(q_values.shape[0]), tf.cast(action, tf.int32)], axis=1))
-        
         loss = MSE(y_target, q_values)
-        return loss
+        loss = tf.reduce_sum(weights * loss) / tf.reduce_sum(weights)
+
+        return loss, indexes, tf.abs(y_target - q_values)
 
     @tf.function
     def agent_learn(self, experiences):
         with tf.GradientTape() as tape:
-            loss = self._compute_loss(experiences)
+            loss, indexes, td_errors = self._compute_loss(experiences)
 
         gradients = tape.gradient(loss, self.q_network.trainable_variables)
 
@@ -71,6 +78,7 @@ class Cartpole_RL_Agent:
         self.optimizer.apply_gradients(zip(gradients, self.q_network.trainable_variables))
 
         self._update_target_network()
+        return indexes, td_errors
 
     def _update_target_network(self):
         # Use soft updates to updates over the parameters of the target network
@@ -89,15 +97,18 @@ class Cartpole_RL_Agent:
             return random.choice([0, 1])
 
     def _sample_memory(self, batch_size):
-        transitions = self.memory_buffer.sample(batch_size)
-        # tensorflow operations will work on gpu rather than numpy CPU-based
-        states = tf.stack([tf.convert_to_tensor(e.state, dtype=tf.float32) for e in transitions if e is not None], axis=0)
-        actions = tf.stack([tf.convert_to_tensor(e.action, dtype=tf.float32) for e in transitions if e is not None], axis=0)
-        rewards = tf.stack([tf.convert_to_tensor(e.reward, dtype=tf.float32) for e in transitions if e is not None], axis=0)
-        next_states = tf.stack([tf.convert_to_tensor(e.next_state, dtype=tf.float32) for e in transitions if e is not None], axis=0)
-        done_vals = tf.stack([tf.convert_to_tensor(e.done, dtype=tf.float32) for e in transitions if e is not None], axis=0)
-        return (states, actions, next_states, rewards, done_vals)
-
+        transitions, weights, indices = self.memory_buffer.sample(batch_size, self.beta)
+        
+        states, actions, next_states, rewards, done_vals = map(np.array, zip(*transitions))
+        
+        states = tf.convert_to_tensor(states, dtype=tf.float32)
+        actions = tf.convert_to_tensor(actions, dtype=tf.int32)
+        rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
+        next_states = tf.convert_to_tensor(next_states, dtype=tf.float32)
+        done_vals = tf.convert_to_tensor(done_vals, dtype=tf.float32)
+        
+        return (states, actions, next_states, rewards, done_vals, weights, indices)
+    
     def train_episodes(self, num_episodes):
         start = time.time()
         self.total_point_history = []
@@ -113,8 +124,6 @@ class Cartpole_RL_Agent:
         # update every few episodes to minimize computations
         update_interval = 3
 
-        self.memory_buffer.clear()
-
         for i in range(num_episodes):
             curr_state, _ = env.reset()
             total_points = 0
@@ -128,16 +137,16 @@ class Cartpole_RL_Agent:
 
                 # take next action - retrieve environ reward
                 next_state, reward, done, _ , _ = env.step(action)
-
                 # record in memory
-                self.memory_buffer.push(curr_state, action, next_state, reward, done)
+                self.memory_buffer.add(curr_state, action, next_state, reward, done)
 
                 do_update= ( (t + 1) % update_interval == 0) 
 
                 if do_update:
                     # compute soft update + update the agent... 
                     experiences = self._sample_memory(batch_size)
-                    self.agent_learn(experiences)
+                    indexes, td_errors = self.agent_learn(experiences)
+                    self.memory_buffer.update_priorities(indexes, td_errors.numpy())  # Update priorities
 
                 curr_state = next_state.copy() # copy over numpy array
                 total_points += reward
@@ -147,6 +156,7 @@ class Cartpole_RL_Agent:
 
             self.total_point_history.append(total_points)
             epsilon = max(e_min, e_decay * epsilon)
+            self.beta = min(1.0, self.beta + 0.001) # increase beta
             avg_latest_points=np.mean(self.total_point_history[-episode_rec:])
 
             if (i+1) % episode_rec == 0:

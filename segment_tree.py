@@ -1,4 +1,5 @@
 import operator
+import numpy as np
 """
 CREDITS: https://github.com/openai/baselines/blob/master/baselines/common/segment_tree.py
 """
@@ -8,11 +9,11 @@ class SegmentTree(object):
         """Build a Segment Tree data structure.
         https://en.wikipedia.org/wiki/Segment_tree
         """
-        assert capacity > 0 and capacity & (capacity - 1) == 0, "capacity must be positive and a power of 2."
+        assert capacity > 0 and (capacity & (capacity - 1)) == 0, "Capacity must be a power of 2."
         self._capacity = capacity
-        self._value = [neutral_element for _ in range(2 * capacity)]
+        self._value = np.full(2 * capacity, neutral_element, dtype=np.float32)
         self._operation = operation
-
+    """
     def _reduce_helper(self, start, end, node, node_start, node_end):
         if start == node_start and end == node_end:
             return self._value[node]
@@ -27,7 +28,7 @@ class SegmentTree(object):
                     self._reduce_helper(start, mid, 2 * node, node_start, mid),
                     self._reduce_helper(mid + 1, end, 2 * node + 1, mid + 1, node_end)
                 )
-
+    """
     def reduce(self, start=0, end=None):
         """
         Returns result of applying self.operation over the specified range of array elements.
@@ -37,7 +38,22 @@ class SegmentTree(object):
         if end < 0:
             end += self._capacity
         end -= 1
-        return self._reduce_helper(start, end, 1, 0, self._capacity - 1)
+
+        start += self._capacity
+        end += self._capacity
+        res = self._value[start]
+
+        while start <= end:
+            if start % 2 == 1:
+                res = self._operation(res, self._value[start])
+                start += 1
+            if end % 2 == 0:
+                res = self._operation(res, self._value[end])
+                end -= 1
+            start //= 2
+            end //= 2
+
+        return res
 
     def __setitem__(self, idx, val):
         # index of the leaf
@@ -88,14 +104,16 @@ class SumSegmentTree(SegmentTree):
         """
         assert 0 <= prefixsum <= self.sum() + 1e-5
         idx = 1
-        while idx < self._capacity:  # while non-leaf
-            if self._value[2 * idx] > prefixsum:
-                idx = 2 * idx
-            else:
-                prefixsum -= self._value[2 * idx]
-                idx = 2 * idx + 1
-        return idx - self._capacity
 
+        while idx < self._capacity:
+            left_child = 2 * idx
+            if self._value[left_child] > prefixsum:
+                idx = left_child
+            else:
+                prefixsum -= self._value[left_child]
+                idx = left_child + 1
+
+        return idx - self._capacity
 
 class MinSegmentTree(SegmentTree):
     def __init__(self, capacity):

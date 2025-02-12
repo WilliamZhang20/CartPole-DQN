@@ -31,7 +31,7 @@ num_episodes = 800
 # Define the agent
 agent = Cartpole_RL_Agent(state_size, action_size)
 
-option = input()
+option = input("Provide your choice: ")
 if option == "1":
     agent.train_episodes(num_episodes)
 else:

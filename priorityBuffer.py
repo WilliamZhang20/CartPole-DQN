@@ -2,6 +2,7 @@ import numpy as np
 from collections import namedtuple
 from segment_tree import SumSegmentTree
 from segment_tree import MinSegmentTree
+import tensorflow as tf
 import random
 
 Transition = namedtuple('Transition',
@@ -12,7 +13,7 @@ CREDIT FOR 99% OF WORK:
 https://github.com/openai/baselines/blob/master/baselines/deepq/replay_buffer.py
 """
 
-class PrioritizedReplayBuffer():
+class PriorityBuffer():
     def __init__(self, size, alpha):
         """Create Prioritized Replay buffer.
 
@@ -48,11 +49,14 @@ class PrioritizedReplayBuffer():
         return len(self._storage)
     
     def _encode_sample(self, idxes):
-        aggregate_sample = []
-        for i in idxes:
-            data = self._storage[i] # storage holds transition tuples
-            aggregate_sample.append(data)
-        return aggregate_sample
+        states, actions, next_states, rewards, dones = zip(*[self._storage[i] for i in idxes])
+        return (
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.int32),
+            np.array(next_states, dtype=np.float32),
+            np.array(rewards, dtype=np.float32),
+            np.array(dones, dtype=np.uint8),
+        )
 
     def add(self, *args):
         """
@@ -64,9 +68,11 @@ class PrioritizedReplayBuffer():
             self._storage.append(data)
         else:
             self._storage[self._next_idx] = data
+        self._next_idx = (self._next_idx + 1) % self._maxsize
         # update priorities
-        self._it_sum[idx] = self._max_priority ** self._alpha
-        self._it_min[idx] = self._max_priority ** self._alpha
+        priority_value = self._max_priority ** self._alpha
+        self._it_sum[idx] = priority_value
+        self._it_min[idx] = priority_value
 
     def _sample_proportional(self, batch_size):
         res = []
@@ -117,7 +123,7 @@ class PrioritizedReplayBuffer():
             weights.append(weight / max_weight)
         weights = np.array(weights)
         encoded_sample = self._encode_sample(idxes)
-        return tuple(encoded_sample, weights, idxes)
+        return (encoded_sample, weights, idxes)
 
     def update_priorities(self, idxes, priorities):
         """Update priorities of sampled transitions.
